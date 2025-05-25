@@ -7,13 +7,18 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/promptfoo/promptfoo.git"
+    "url": "git+https://github.com/xiyouqishui/promptfoo#"
   },
   "main": "dist/src/index.js",
   "exports": {
     ".": {
       "import": "./dist/src/index.js",
       "require": "./dist/src/index.js"
+    },
+    "./redteam": {
+      "import": "./dist/src/redteam/index.js",
+      "require": "./dist/src/redteam/index.js",
+      "types": "./dist/src/redteam/index.d.ts"
     }
   },
   "workspaces": [
