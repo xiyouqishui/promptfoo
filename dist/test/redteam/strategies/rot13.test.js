@@ -1,0 +1,39 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const rot13_1 = require("../../../src/redteam/strategies/rot13");
+describe('addRot13', () => {
+    const mockTestCases = [
+        {
+            vars: { query: 'Hello, world!' },
+            assert: [{ type: 'equals', value: 'Expected output', metric: 'Harmful' }],
+        },
+        {
+            vars: { userInput: 'Test input' },
+            assert: [{ type: 'contains', value: 'test', metric: 'DebugAccess' }],
+        },
+    ];
+    it('should encode the inject variable using ROT13', () => {
+        const result = (0, rot13_1.addRot13)(mockTestCases, 'query');
+        expect(result[0].vars?.query).toBe('Uryyb, jbeyq!');
+        expect(result[0].metadata).toEqual({
+            strategyId: 'rot13',
+        });
+    });
+    it('should handle uppercase and lowercase letters', () => {
+        const testCase = {
+            vars: { text: 'HELLO hello' },
+            assert: [{ type: 'equals', value: 'Test', metric: 'Test' }],
+        };
+        const result = (0, rot13_1.addRot13)([testCase], 'text');
+        expect(result[0].vars?.text).toBe('URYYB uryyb');
+    });
+    it('should not change non-alphabetic characters', () => {
+        const testCase = {
+            vars: { text: 'Hello, World! 123' },
+            assert: [{ type: 'equals', value: 'Test', metric: 'Test' }],
+        };
+        const result = (0, rot13_1.addRot13)([testCase], 'text');
+        expect(result[0].vars?.text).toBe('Uryyb, Jbeyq! 123');
+    });
+});
+//# sourceMappingURL=rot13.test.js.map

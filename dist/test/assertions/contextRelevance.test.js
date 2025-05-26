@@ -1,0 +1,238 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const contextRelevance_1 = require("../../src/assertions/contextRelevance");
+const matchers_1 = require("../../src/matchers");
+jest.mock('../../src/matchers');
+describe('handleContextRelevance', () => {
+    beforeEach(() => {
+        jest.resetAllMocks();
+    });
+    it('should handle valid input', async () => {
+        const mockResult = {
+            pass: true,
+            score: 0.8,
+            reason: 'test reason',
+        };
+        jest.mocked(matchers_1.matchesContextRelevance).mockResolvedValue(mockResult);
+        const result = await (0, contextRelevance_1.handleContextRelevance)({
+            assertion: {
+                type: 'context-relevance',
+                threshold: 0.7,
+            },
+            test: {
+                vars: {
+                    query: 'test query',
+                    context: 'test context',
+                },
+                options: {},
+            },
+            baseType: 'context-relevance',
+            context: {
+                prompt: 'test prompt',
+                vars: {},
+                test: {
+                    vars: {
+                        query: 'test query',
+                        context: 'test context',
+                    },
+                    options: {},
+                },
+                logProbs: undefined,
+                provider: {
+                    id: () => 'test-provider',
+                    config: {},
+                    callApi: jest.fn(),
+                },
+                providerResponse: {
+                    output: 'test output',
+                    tokenUsage: {},
+                },
+            },
+            inverse: false,
+            output: 'test output',
+            outputString: 'test output',
+            providerResponse: {
+                output: 'test output',
+                tokenUsage: {},
+            },
+        });
+        expect(result).toEqual({
+            assertion: {
+                type: 'context-relevance',
+                threshold: 0.7,
+            },
+            ...mockResult,
+        });
+        expect(matchers_1.matchesContextRelevance).toHaveBeenCalledWith('test query', 'test context', 0.7, {});
+    });
+    it('should throw error if vars is missing', async () => {
+        await expect((0, contextRelevance_1.handleContextRelevance)({
+            assertion: {
+                type: 'context-relevance',
+            },
+            test: {},
+            baseType: 'context-relevance',
+            context: {
+                prompt: 'test prompt',
+                vars: {},
+                test: {
+                    vars: {
+                        query: 'test query',
+                        context: 'test context',
+                    },
+                    options: {},
+                },
+                logProbs: undefined,
+                provider: {
+                    id: () => 'test-provider',
+                    config: {},
+                    callApi: jest.fn(),
+                },
+                providerResponse: {
+                    output: 'test output',
+                    tokenUsage: {},
+                },
+            },
+            inverse: false,
+            output: 'test output',
+            outputString: 'test output',
+            providerResponse: {
+                output: 'test output',
+                tokenUsage: {},
+            },
+        })).rejects.toThrow('context-relevance assertion type must have a vars object');
+    });
+    it('should throw error if query is missing', async () => {
+        await expect((0, contextRelevance_1.handleContextRelevance)({
+            assertion: {
+                type: 'context-relevance',
+            },
+            test: {
+                vars: {
+                    context: 'test context',
+                },
+            },
+            baseType: 'context-relevance',
+            context: {
+                prompt: 'test prompt',
+                vars: {},
+                test: {
+                    vars: {
+                        query: 'test query',
+                        context: 'test context',
+                    },
+                    options: {},
+                },
+                logProbs: undefined,
+                provider: {
+                    id: () => 'test-provider',
+                    config: {},
+                    callApi: jest.fn(),
+                },
+                providerResponse: {
+                    output: 'test output',
+                    tokenUsage: {},
+                },
+            },
+            inverse: false,
+            output: 'test output',
+            outputString: 'test output',
+            providerResponse: {
+                output: 'test output',
+                tokenUsage: {},
+            },
+        })).rejects.toThrow('context-relevance assertion type must have a query var');
+    });
+    it('should throw error if context is missing', async () => {
+        await expect((0, contextRelevance_1.handleContextRelevance)({
+            assertion: {
+                type: 'context-relevance',
+            },
+            test: {
+                vars: {
+                    query: 'test query',
+                },
+            },
+            baseType: 'context-relevance',
+            context: {
+                prompt: 'test prompt',
+                vars: {},
+                test: {
+                    vars: {
+                        query: 'test query',
+                        context: 'test context',
+                    },
+                    options: {},
+                },
+                logProbs: undefined,
+                provider: {
+                    id: () => 'test-provider',
+                    config: {},
+                    callApi: jest.fn(),
+                },
+                providerResponse: {
+                    output: 'test output',
+                    tokenUsage: {},
+                },
+            },
+            inverse: false,
+            output: 'test output',
+            outputString: 'test output',
+            providerResponse: {
+                output: 'test output',
+                tokenUsage: {},
+            },
+        })).rejects.toThrow('context-relevance assertion type must have a context var');
+    });
+    it('should use default threshold of 0 if not specified', async () => {
+        const mockResult = {
+            pass: true,
+            score: 0.5,
+            reason: 'test reason',
+        };
+        jest.mocked(matchers_1.matchesContextRelevance).mockResolvedValue(mockResult);
+        await (0, contextRelevance_1.handleContextRelevance)({
+            assertion: {
+                type: 'context-relevance',
+            },
+            test: {
+                vars: {
+                    query: 'test query',
+                    context: 'test context',
+                },
+                options: {},
+            },
+            baseType: 'context-relevance',
+            context: {
+                prompt: 'test prompt',
+                vars: {},
+                test: {
+                    vars: {
+                        query: 'test query',
+                        context: 'test context',
+                    },
+                    options: {},
+                },
+                logProbs: undefined,
+                provider: {
+                    id: () => 'test-provider',
+                    config: {},
+                    callApi: jest.fn(),
+                },
+                providerResponse: {
+                    output: 'test output',
+                    tokenUsage: {},
+                },
+            },
+            inverse: false,
+            output: 'test output',
+            outputString: 'test output',
+            providerResponse: {
+                output: 'test output',
+                tokenUsage: {},
+            },
+        });
+        expect(matchers_1.matchesContextRelevance).toHaveBeenCalledWith('test query', 'test context', 0, {});
+    });
+});
+//# sourceMappingURL=contextRelevance.test.js.map

@@ -1,0 +1,432 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+const fs = __importStar(require("fs"));
+const node_module_1 = require("node:module");
+const path = __importStar(require("path"));
+const evaluatorHelpers_1 = require("../src/evaluatorHelpers");
+const transform_1 = require("../src/util/transform");
+jest.mock('proxy-agent', () => ({
+    ProxyAgent: jest.fn().mockImplementation(() => ({})),
+}));
+jest.mock('glob', () => ({
+    globSync: jest.fn(),
+}));
+jest.mock('node:module', () => {
+    const mockRequire = {
+        resolve: jest.fn(),
+    };
+    return {
+        createRequire: jest.fn().mockReturnValue(mockRequire),
+    };
+});
+jest.mock('fs', () => ({
+    readFileSync: jest.fn(),
+    writeFileSync: jest.fn(),
+    statSync: jest.fn(),
+    readdirSync: jest.fn(),
+    existsSync: jest.fn(),
+    mkdirSync: jest.fn(),
+    promises: {
+        readFile: jest.fn(),
+    },
+}));
+jest.mock('pdf-parse', () => ({
+    __esModule: true,
+    default: jest
+        .fn()
+        .mockImplementation((buffer) => Promise.resolve({ text: 'Extracted PDF text' })),
+}));
+jest.mock('../src/esm');
+jest.mock('../src/database', () => ({
+    getDb: jest.fn(),
+}));
+jest.mock('../src/util/transform', () => ({
+    transform: jest.fn(),
+}));
+function toPrompt(text) {
+    return { raw: text, label: text };
+}
+describe('extractTextFromPDF', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+    it('should extract text from PDF successfully', async () => {
+        const mockPDFText = 'Extracted PDF text';
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce(Buffer.from('mock pdf content'));
+        const result = await (0, evaluatorHelpers_1.extractTextFromPDF)('test.pdf');
+        expect(result).toBe(mockPDFText);
+    });
+    it('should throw error when pdf-parse is not installed', async () => {
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce(Buffer.from('mock pdf content'));
+        const mockPDFParse = jest.requireMock('pdf-parse');
+        mockPDFParse.default.mockImplementationOnce(() => {
+            throw new Error("Cannot find module 'pdf-parse'");
+        });
+        await expect((0, evaluatorHelpers_1.extractTextFromPDF)('test.pdf')).rejects.toThrow('pdf-parse is not installed. Please install it with: npm install pdf-parse');
+    });
+    it('should handle PDF extraction errors', async () => {
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce(Buffer.from('mock pdf content'));
+        const mockPDFParse = jest.requireMock('pdf-parse');
+        mockPDFParse.default.mockRejectedValueOnce(new Error('PDF parsing failed'));
+        await expect((0, evaluatorHelpers_1.extractTextFromPDF)('test.pdf')).rejects.toThrow('Failed to extract text from PDF test.pdf: PDF parsing failed');
+    });
+});
+describe('renderPrompt', () => {
+    beforeEach(() => {
+        delete process.env.PROMPTFOO_DISABLE_TEMPLATING;
+        delete process.env.PROMPTFOO_DISABLE_JSON_AUTOESCAPE;
+    });
+    it('should render a prompt with a single variable', async () => {
+        const prompt = toPrompt('Test prompt {{ var1 }}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+        expect(renderedPrompt).toBe('Test prompt value1');
+    });
+    it('should render nested variables in non-JSON prompts', async () => {
+        const prompt = toPrompt('Test {{ outer[inner] }}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { outer: { key1: 'value1' }, inner: 'key1' }, {});
+        expect(renderedPrompt).toBe('Test value1');
+    });
+    it('should handle complex variable substitutions in non-JSON prompts', async () => {
+        const prompt = toPrompt('{{ var1[var2] }}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {
+            var1: { hello: 'world' },
+            var2: 'hello',
+        }, {});
+        expect(renderedPrompt).toBe('world');
+    });
+    it('should render a JSON prompt', async () => {
+        const prompt = toPrompt('[{"text": "Test prompt "}, {"text": "{{ var1 }}"}]');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+        expect(renderedPrompt).toBe(JSON.stringify(JSON.parse('[{"text":"Test prompt "},{"text":"value1"}]'), null, 2));
+    });
+    it('should render nested variables in JSON prompts', async () => {
+        const prompt = toPrompt('{"text": "{{ outer[inner] }}"}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { outer: { key1: 'value1' }, inner: 'key1' }, {});
+        expect(renderedPrompt).toBe(JSON.stringify({ text: 'value1' }, null, 2));
+    });
+    it('should handle complex variable substitutions in JSON prompts', async () => {
+        const prompt = toPrompt('{"message": "{{ var1[var2] }}"}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {
+            var1: { hello: 'world' },
+            var2: 'hello',
+        }, {});
+        expect(renderedPrompt).toBe(JSON.stringify({ message: 'world' }, null, 2));
+    });
+    it('should render a JSON prompt and escape the var string', async () => {
+        const prompt = toPrompt('[{"text": "Test prompt "}, {"text": "{{ var1 }}"}]');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'He said "hello world!"' }, {});
+        expect(renderedPrompt).toBe(JSON.stringify(JSON.parse('[{"text":"Test prompt "},{"text":"He said \\"hello world!\\""}]'), null, 2));
+    });
+    it('should render a JSON prompt with nested JSON', async () => {
+        const prompt = toPrompt('[{"text": "Test prompt "}, {"text": "{{ var1 }}"}]');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: '{"nested": "value1"}' }, {});
+        expect(renderedPrompt).toBe(JSON.stringify(JSON.parse('[{"text":"Test prompt "},{"text":"{\\"nested\\": \\"value1\\"}"}]'), null, 2));
+    });
+    it('should load external yaml files in renderPrompt', async () => {
+        const prompt = toPrompt('Test prompt with {{ var1 }}');
+        const vars = { var1: 'file://test.txt' };
+        const evaluateOptions = {};
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce('loaded from file');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, vars, evaluateOptions);
+        expect(fs.readFileSync).toHaveBeenCalledWith(expect.stringContaining('test.txt'), 'utf8');
+        expect(renderedPrompt).toBe('Test prompt with loaded from file');
+    });
+    it('should load external js files in renderPrompt and execute the exported function', async () => {
+        const prompt = toPrompt('Test prompt with {{ var1 }} {{ var2 }} {{ var3 }}');
+        const vars = {
+            var1: 'file:///path/to/testFunction.js',
+            var2: 'file:///path/to/testFunction.cjs',
+            var3: 'file:///path/to/testFunction.mjs',
+        };
+        const evaluateOptions = {};
+        jest.doMock(path.resolve('/path/to/testFunction.js'), () => (varName, prompt, vars) => ({ output: `Dynamic value for ${varName}` }), { virtual: true });
+        jest.doMock(path.resolve('/path/to/testFunction.cjs'), () => (varName, prompt, vars) => ({ output: `and ${varName}` }), { virtual: true });
+        jest.doMock(path.resolve('/path/to/testFunction.mjs'), () => (varName, prompt, vars) => ({ output: `and ${varName}` }), { virtual: true });
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, vars, evaluateOptions);
+        expect(renderedPrompt).toBe('Test prompt with Dynamic value for var1 and var2 and var3');
+    });
+    it('should load external js package in renderPrompt and execute the exported function', async () => {
+        const prompt = toPrompt('Test prompt with {{ var1 }}');
+        const vars = {
+            var1: 'package:@promptfoo/fake:testFunction',
+        };
+        const evaluateOptions = {};
+        const require = (0, node_module_1.createRequire)('');
+        jest.spyOn(require, 'resolve').mockReturnValueOnce('/node_modules/@promptfoo/fake/index.js');
+        jest.doMock(path.resolve('/node_modules/@promptfoo/fake/index.js'), () => ({
+            testFunction: (varName, prompt, vars) => ({
+                output: `Dynamic value for ${varName}`,
+            }),
+        }), { virtual: true });
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, vars, evaluateOptions);
+        expect(renderedPrompt).toBe('Test prompt with Dynamic value for var1');
+    });
+    it('should load external json files in renderPrompt and parse the JSON content', async () => {
+        const prompt = toPrompt('Test prompt with {{ var1 }}');
+        const vars = { var1: 'file:///path/to/testData.json' };
+        const evaluateOptions = {};
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce(JSON.stringify({ key: 'valueFromJson' }));
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, vars, evaluateOptions);
+        expect(fs.readFileSync).toHaveBeenCalledWith(expect.stringContaining('testData.json'), 'utf8');
+        expect(renderedPrompt).toBe('Test prompt with {"key":"valueFromJson"}');
+    });
+    it('should load external yaml files in renderPrompt and parse the YAML content', async () => {
+        const prompt = toPrompt('Test prompt with {{ var1 }}');
+        const vars = { var1: 'file:///path/to/testData.yaml' };
+        const evaluateOptions = {};
+        jest.spyOn(fs, 'readFileSync').mockReturnValueOnce('key: valueFromYaml');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, vars, evaluateOptions);
+        expect(fs.readFileSync).toHaveBeenCalledWith(expect.stringContaining('testData.yaml'), 'utf8');
+        expect(renderedPrompt).toBe('Test prompt with {"key":"valueFromYaml"}');
+    });
+    describe('with PROMPTFOO_DISABLE_TEMPLATING', () => {
+        beforeEach(() => {
+            process.env.PROMPTFOO_DISABLE_TEMPLATING = 'true';
+        });
+        afterEach(() => {
+            delete process.env.PROMPTFOO_DISABLE_TEMPLATING;
+        });
+        it('should return raw prompt when templating is disabled', async () => {
+            const prompt = toPrompt('Test prompt {{ var1 }}');
+            const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+            expect(renderedPrompt).toBe('Test prompt {{ var1 }}');
+        });
+    });
+    it('should render normally when templating is enabled', async () => {
+        process.env.PROMPTFOO_DISABLE_TEMPLATING = 'false';
+        const prompt = toPrompt('Test prompt {{ var1 }}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+        expect(renderedPrompt).toBe('Test prompt value1');
+        delete process.env.PROMPTFOO_DISABLE_TEMPLATING;
+    });
+    it('should respect Nunjucks raw tags when variable is provided as a string', async () => {
+        const prompt = toPrompt('{% raw %}{{ var1 }}{% endraw %}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+        expect(renderedPrompt).toBe('{{ var1 }}');
+    });
+    it('should respect Nunjucks raw tags when no variables are provided', async () => {
+        const prompt = toPrompt('{% raw %}{{ var1 }}{% endraw %}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {}, {});
+        expect(renderedPrompt).toBe('{{ var1 }}');
+    });
+    it('should respect Nunjucks escaped strings when variable is provided as a string', async () => {
+        const prompt = toPrompt(`{{ '{{ var1 }}' }}`);
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: 'value1' }, {});
+        expect(renderedPrompt).toBe('{{ var1 }}');
+    });
+    it('should respect Nunjucks escaped strings when no variables are provided', async () => {
+        const prompt = toPrompt(`{{ '{{ var1 }}' }}`);
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {}, {});
+        expect(renderedPrompt).toBe('{{ var1 }}');
+    });
+    it('should render variables that are template strings', async () => {
+        const prompt = toPrompt('{{ var1 }}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { var1: '{{ var2 }}', var2: 'value2' }, {});
+        expect(renderedPrompt).toBe('value2');
+    });
+    it('should auto-wrap prompts with partial Nunjucks tags in {% raw %}', async () => {
+        const prompt = toPrompt('This is a partial tag: {%');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {}, {});
+        expect(renderedPrompt).toBe('This is a partial tag: {%');
+    });
+    it('should not double-wrap prompts already wrapped in {% raw %}', async () => {
+        const prompt = toPrompt('{% raw %}This is a partial tag: {%{% endraw %}');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {}, {});
+        expect(renderedPrompt).toBe('This is a partial tag: {%');
+    });
+    it('should not wrap prompts with valid Nunjucks tags', async () => {
+        const prompt = toPrompt('Hello {{ name }}!');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { name: 'Alice' }, {});
+        expect(renderedPrompt).toBe('Hello Alice!');
+        expect(renderedPrompt).not.toContain('{% raw %}');
+    });
+    it('should auto-wrap prompts with partial variable tags', async () => {
+        const prompt = toPrompt('Unfinished variable: {{ name');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, { name: 'Alice' }, {});
+        expect(renderedPrompt).toBe('Unfinished variable: {{ name');
+    });
+    it('should auto-wrap prompts with partial comment tags', async () => {
+        const prompt = toPrompt('Unfinished comment: {# comment');
+        const renderedPrompt = await (0, evaluatorHelpers_1.renderPrompt)(prompt, {}, {});
+        expect(renderedPrompt).toBe('Unfinished comment: {# comment');
+    });
+});
+describe('renderPrompt with prompt functions', () => {
+    it('should handle string returns from prompt functions', async () => {
+        const promptObj = {
+            ...toPrompt('test'),
+            function: async () => 'Hello, world!',
+        };
+        const result = await (0, evaluatorHelpers_1.renderPrompt)(promptObj, {});
+        expect(result).toBe('Hello, world!');
+    });
+    it('should handle object/array returns from prompt functions', async () => {
+        const messages = [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: 'Hello' },
+        ];
+        const promptObj = {
+            ...toPrompt('test'),
+            function: async () => messages,
+        };
+        const result = await (0, evaluatorHelpers_1.renderPrompt)(promptObj, {});
+        expect(JSON.parse(result)).toEqual(messages);
+    });
+    it('should handle PromptFunctionResult returns from prompt functions', async () => {
+        const messages = [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: 'Hello' },
+        ];
+        const promptObj = {
+            ...toPrompt('test'),
+            function: async () => ({
+                prompt: messages,
+                config: { max_tokens: 10 },
+            }),
+            config: {},
+        };
+        const result = await (0, evaluatorHelpers_1.renderPrompt)(promptObj, {});
+        expect(JSON.parse(result)).toEqual(messages);
+        expect(promptObj.config).toEqual({ max_tokens: 10 });
+    });
+    it('should set config from prompt function when initial config is undefined', async () => {
+        const messages = [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: 'Hello' },
+        ];
+        const promptObj = {
+            ...toPrompt('test'),
+            config: undefined,
+            function: async () => ({
+                prompt: messages,
+                config: { max_tokens: 10 },
+            }),
+        };
+        expect(promptObj.config).toBeUndefined();
+        const result = await (0, evaluatorHelpers_1.renderPrompt)(promptObj, {});
+        expect(promptObj.config).toEqual({ max_tokens: 10 });
+        expect(JSON.parse(result)).toEqual(messages);
+    });
+    it('should replace existing config with function config', async () => {
+        const messages = [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: 'Hello' },
+        ];
+        const promptObj = {
+            ...toPrompt('test'),
+            function: async () => ({
+                prompt: messages,
+                config: {
+                    temperature: 0.8,
+                    max_tokens: 20,
+                },
+            }),
+            config: {
+                temperature: 0.2,
+                top_p: 0.9,
+            },
+        };
+        const result = await (0, evaluatorHelpers_1.renderPrompt)(promptObj, {});
+        expect(JSON.parse(result)).toEqual(messages);
+        expect(promptObj.config).toEqual({
+            temperature: 0.8,
+            max_tokens: 20,
+            top_p: 0.9,
+        });
+    });
+});
+describe('resolveVariables', () => {
+    it('should replace placeholders with corresponding variable values', () => {
+        const variables = { final: '{{ my_greeting }}, {{name}}!', my_greeting: 'Hello', name: 'John' };
+        const expected = { final: 'Hello, John!', my_greeting: 'Hello', name: 'John' };
+        expect((0, evaluatorHelpers_1.resolveVariables)(variables)).toEqual(expected);
+    });
+    it('should handle nested variable substitutions', () => {
+        const variables = { first: '{{second}}', second: '{{third}}', third: 'value' };
+        const expected = { first: 'value', second: 'value', third: 'value' };
+        expect((0, evaluatorHelpers_1.resolveVariables)(variables)).toEqual(expected);
+    });
+    it('should not modify variables without placeholders', () => {
+        const variables = { greeting: 'Hello, world!', name: 'John' };
+        const expected = { greeting: 'Hello, world!', name: 'John' };
+        expect((0, evaluatorHelpers_1.resolveVariables)(variables)).toEqual(expected);
+    });
+    it('should not fail if a variable is not found', () => {
+        const variables = { greeting: 'Hello, {{name}}!' };
+        expect((0, evaluatorHelpers_1.resolveVariables)(variables)).toEqual({ greeting: 'Hello, {{name}}!' });
+    });
+    it('should not fail for unresolved placeholders', () => {
+        const variables = { greeting: 'Hello, {{name}}!', name: '{{unknown}}' };
+        expect((0, evaluatorHelpers_1.resolveVariables)(variables)).toEqual({
+            greeting: 'Hello, {{unknown}}!',
+            name: '{{unknown}}',
+        });
+    });
+});
+describe('runExtensionHook', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+    it('should not call transform if extensions array is empty', async () => {
+        await (0, evaluatorHelpers_1.runExtensionHook)([], 'testHook', { data: 'test' });
+        expect(transform_1.transform).not.toHaveBeenCalled();
+    });
+    it('should not call transform if extensions is undefined', async () => {
+        await (0, evaluatorHelpers_1.runExtensionHook)(undefined, 'testHook', { data: 'test' });
+        expect(transform_1.transform).not.toHaveBeenCalled();
+    });
+    it('should not call transform if extensions is null', async () => {
+        await (0, evaluatorHelpers_1.runExtensionHook)(null, 'testHook', { data: 'test' });
+        expect(transform_1.transform).not.toHaveBeenCalled();
+    });
+    it('should call transform for each extension', async () => {
+        const extensions = ['ext1', 'ext2', 'ext3'];
+        const hookName = 'testHook';
+        const context = { data: 'test' };
+        await (0, evaluatorHelpers_1.runExtensionHook)(extensions, hookName, context);
+        expect(transform_1.transform).toHaveBeenCalledTimes(3);
+        expect(transform_1.transform).toHaveBeenNthCalledWith(1, 'ext1', hookName, context, false);
+        expect(transform_1.transform).toHaveBeenNthCalledWith(2, 'ext2', hookName, context, false);
+        expect(transform_1.transform).toHaveBeenNthCalledWith(3, 'ext3', hookName, context, false);
+    });
+    it('should throw an error if an extension is not a string', async () => {
+        const extensions = ['ext1', 123, 'ext3'];
+        const hookName = 'testHook';
+        const context = { data: 'test' };
+        await expect((0, evaluatorHelpers_1.runExtensionHook)(extensions, hookName, context)).rejects.toThrow('extension must be a string');
+    });
+});
+//# sourceMappingURL=evaluatorHelpers.test.js.map
